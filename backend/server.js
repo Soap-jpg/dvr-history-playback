@@ -180,7 +180,7 @@ function selectSegments(camera, startDate, endDate) {
 // Initialize cleanup worker thread
 // ----------------------------------------
 function initCleanupWorker() {
-    cleanupWorker = new Worker(path.join(__dirname, 'cleanup-worker.js'), {
+    cleanupWorker = new Worker('./cleanup-worker.js', {
         workerData: {
             DVR_ROOT,
             cameras: config.cameras
