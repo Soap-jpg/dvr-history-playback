@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "3000:3000"
+    volumes:
+      # ========================================================================
+      # ARCHITECTURAL NECESSITY FOR SHARED VOLUME:
+      # The Node.js backend uses FFmpeg to segment incoming video streams into 
+      # HLS chunks (.m4s) and playlists (.m3u8), saving them to /var/dvr.
+      # To achieve high performance and low latency, Nginx is used as a reverse
+      # proxy that serves these static media files directly to the client, bypassing
+      # the Node.js event loop completely. 
+      # By sharing the /var/dvr volume between the backend and nginx containers, 
+      # Nginx gains direct read access to the exact filesystem path where FFmpeg 
+      # writes the live chunks, avoiding unnecessary network hops or memory overhead.
+      # ========================================================================
+      - dvr_volume:/var/dvr
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      # Mount the shared volume so Nginx can directly serve static chunks
+      - dvr_volume:/var/dvr
+      # You should mount your custom nginx.conf here:
+      # - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+
+  frontend:
+    # Assuming the Vite React app is situated in a folder named 'frontend' 
+    # running in development mode. For production, this would serve a static build.
+    image: node:20-bullseye-slim
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+
+volumes:
+  dvr_volume:

@@ -1,0 +1,19 @@
+FROM node:20-bullseye-slim
+
+# Install FFmpeg required for the DVR engine to process video streams
+RUN apt-get update && \
+    apt-get install -y ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy application configuration and source code
+COPY package*.json ./
+RUN npm install --production || echo "No package.json found or npm install failed, continuing..."
+
+COPY . .
+
+# Expose the Node.js backend port
+EXPOSE 3000
+
+CMD ["node", "server.js"]
