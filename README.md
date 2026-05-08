@@ -84,6 +84,3 @@ If you run this as a service, verify:
 - `WorkingDirectory` points to the real project directory.
 - `ExecStart` points to the real `server.js` path.
 
-## License
-
-Licensed under [LICENSE](./LICENSE).
