@@ -5,8 +5,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.backend
-    ports:
-      - "3000:3000"
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
     volumes:
       # ========================================================================
       # ARCHITECTURAL NECESSITY FOR SHARED VOLUME:

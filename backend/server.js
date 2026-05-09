@@ -667,8 +667,11 @@ setInterval(() => {
     }
 }, PREVIEW_CHECK_INTERVAL);
 
-app.listen(8080, '127.0.0.1', () => {
-    console.log('DVR engine started on 127.0.0.1:8080');
+const PORT = process.env.PORT || 8080;
+const HOST = process.env.HOST || '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+    console.log(`DVR engine started on ${HOST}:${PORT}`);
 });
 
 function shutdown() {
