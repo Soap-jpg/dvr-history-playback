@@ -315,6 +315,7 @@ function buildPlaylist(camera, segments, mode, mediaSequence = 0) {
                     }
                 }
                 previousTs = unix;
+                body += `#EXT-X-PROGRAM-DATE-TIME:${tsObj.toISOString()}\n`;
             }
         } catch (err) {
             // ignore bad filenames

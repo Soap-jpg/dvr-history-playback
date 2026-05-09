@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, FastForward, ZoomIn, ZoomOut } from 'lucide-react';
+import { Play, Pause, FastForward } from 'lucide-react';
 
 interface RecordingRange {
   from: number;
@@ -13,7 +13,7 @@ interface AIEvent {
   confidence: number;
 }
 
-const CameraPlayer = React.forwardRef(({ cameraId, videoSrc, isPlaying, onPlay, onPause, showNoFootageMessage, playbackTime }: any, ref: any) => {
+const CameraPlayer = React.forwardRef(({ cameraId, videoSrc, isPlaying, onPlay, onPause, showNoFootageMessage, playbackTime, onPlayingDateChange }: any, ref: any) => {
   const videoRef = ref;
 
   const togglePlay = () => {
@@ -37,6 +37,18 @@ const CameraPlayer = React.forwardRef(({ cameraId, videoSrc, isPlaying, onPlay, 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         videoRef.current?.play().catch(err => console.log('Autoplay prevented:', err));
       });
+
+      // Constantly report the TRUE real-world time of the video back to the timeline
+      const syncInterval = setInterval(() => {
+        if (hls && hls.playingDate && onPlayingDateChange) {
+          onPlayingDateChange(hls.playingDate);
+        }
+      }, 500);
+
+      return () => {
+        clearInterval(syncInterval);
+        hls.destroy();
+      };
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
       videoRef.current.src = videoSrc;
       videoRef.current.addEventListener('loadedmetadata', () => {
@@ -118,7 +130,7 @@ export default function DVRPlayback() {
 
   const isPlaying = isPlaying1 || isPlaying2;
 
-  // Playhead and time sync
+  // Playhead and time sync (Only for Live. VOD is synced via CameraPlayer's true playingDate)
   useEffect(() => {
     const interval = setInterval(() => {
       if (isLive) {
@@ -126,17 +138,18 @@ export default function DVRPlayback() {
         const secondsSinceMidnight = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
         setPlayheadPct((secondsSinceMidnight / 86400) * 100);
         setPlaybackTime(now);
-      } else if (isPlaying) {
-        setPlaybackTime(prev => {
-          const next = new Date(prev.getTime() + 1000);
-          const secondsSinceMidnight = next.getHours() * 3600 + next.getMinutes() * 60 + next.getSeconds();
-          setPlayheadPct((secondsSinceMidnight / 86400) * 100);
-          return next;
-        });
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isLive, isPlaying]);
+  }, [isLive]);
+
+  const handleTrueTimeUpdate = (trueDate: Date) => {
+    if (!isLive) {
+      setPlaybackTime(trueDate);
+      const secondsSinceMidnight = trueDate.getHours() * 3600 + trueDate.getMinutes() * 60 + trueDate.getSeconds();
+      setPlayheadPct((secondsSinceMidnight / 86400) * 100);
+    }
+  };
 
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -264,6 +277,7 @@ export default function DVRPlayback() {
                 onPause={() => setIsPlaying1(false)}
                 showNoFootageMessage={showNoFootageMessage}
                 playbackTime={playbackTime}
+                onPlayingDateChange={handleTrueTimeUpdate}
               />
               <CameraPlayer 
                 ref={videoRef2}
@@ -295,16 +309,6 @@ export default function DVRPlayback() {
                   <div className="flex items-center"><span className="w-1.5 h-1.5 bg-[#eab308] rounded-full mr-1.5 shadow-[0_0_4px_#eab308]"></span> EVT_MOTION</div>
                   <div className="flex items-center"><span className="w-1.5 h-1.5 bg-[#3b82f6] rounded-full mr-1.5 shadow-[0_0_4px_#3b82f6]"></span> EVT_PERSON</div>
                 </div>
-              </div>
-              
-              <div className="flex items-center bg-surface-container border border-outline-variant rounded p-0.5">
-                <button className="w-6 h-6 flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-sm transition-colors">
-                  <ZoomOut className="w-4 h-4" />
-                </button>
-                <div className="w-px h-3 bg-outline-variant mx-1"></div>
-                <button className="w-6 h-6 flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-sm transition-colors">
-                  <ZoomIn className="w-4 h-4" />
-                </button>
               </div>
             </div>
 
