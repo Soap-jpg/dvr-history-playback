@@ -298,11 +298,31 @@ function buildPlaylist(camera, segments, mode, mediaSequence = 0) {
         header += `#EXT-X-PLAYLIST-TYPE:VOD\n`;
     }
 
-    let body = segments.map(f =>
-        `#EXTINF:${SEGMENT_DURATION.toFixed(3)},\n/dvr/${camera}/${f}`
-    ).join('\n');
+    let body = '';
+    let previousTs = null;
 
-    if (mode !== 'live') body += '\n#EXT-X-ENDLIST';
+    for (const f of segments) {
+        try {
+            const tsObj = parseTimestamp(path.basename(f));
+            if (tsObj) {
+                const unix = Math.floor(tsObj.getTime() / 1000);
+                if (previousTs !== null) {
+                    const gap = unix - previousTs;
+                    // If gap is more than 1.5x segment duration, insert discontinuity
+                    if (gap > SEGMENT_DURATION * 1.5) {
+                        body += '#EXT-X-DISCONTINUITY\n';
+                        body += `#EXT-X-MAP:URI="/dvr/${camera}/init.mp4"\n`;
+                    }
+                }
+                previousTs = unix;
+            }
+        } catch (err) {
+            // ignore bad filenames
+        }
+        body += `#EXTINF:${SEGMENT_DURATION.toFixed(3)},\n/dvr/${camera}/${f}\n`;
+    }
+
+    if (mode !== 'live') body += '#EXT-X-ENDLIST';
 
     return header + '\n' + body;
 }
@@ -401,6 +421,13 @@ function generateMinutePreview(cameraName) {
 // ----------------------------------------
 // Routes
 // ----------------------------------------
+
+app.use('/dvr', express.static(DVR_ROOT, {
+    setHeaders: (res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cache-Control', 'no-cache');
+    }
+}));
 
 // ----------------------------------------
 // Live streaming HLS playlists
@@ -640,8 +667,8 @@ setInterval(() => {
     }
 }, PREVIEW_CHECK_INTERVAL);
 
-app.listen(3000, () => {
-    console.log('DVR engine started');
+app.listen(8080, '127.0.0.1', () => {
+    console.log('DVR engine started on 127.0.0.1:8080');
 });
 
 function shutdown() {

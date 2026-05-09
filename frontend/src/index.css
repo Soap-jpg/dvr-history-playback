@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@config "../tailwind.config.ts";
+
+body {
+    background-color: theme('colors.background');
+    color: theme('colors.on-background');
+}
+
+/* Hide scrollbar for timeline but allow scrolling */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
