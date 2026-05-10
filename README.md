@@ -1,86 +1,129 @@
-# Simple DVR
+# DVR History Playback System
 
-A lightweight DVR service built with Node.js + FFmpeg for:
+A professional-grade, full-stack DVR (Digital Video Recorder) system built with **Node.js + FFmpeg** on the backend and **React + Vite + HLS.js** on the frontend. Designed to simulate and demonstrate a real-world security camera recording and playback pipeline.
 
-- live HLS streaming from cameras and other video source URLs;
-- archive playback by time range;
-- MP4 archive export;
-- automatic retention cleanup using `retentionDays`.
+## Features
 
-Repository: `https://github.com/rosteleset/Simple-DVR.git`
+- **Live Dual-Camera Streaming** — Two synchronized camera feeds served over HLS (HTTP Live Streaming) via FFmpeg
+- **Clickable 24-Hour Timeline** — Interactive timeline bar spanning the full day; click any recorded block to instantly seek both cameras to that point in history
+- **Continuous Auto-Play** — Seamless playback across fragmented HLS segments with `#EXT-X-DISCONTINUITY` handling to skip gaps without freezing
+- **Master Play/Pause Control** — Synchronizes both camera feeds at the exact same millisecond
+- **Skip Forward / Backward (10s)** — Precision scrubbing that requests fresh HLS playlists from the backend (not `currentTime` manipulation)
+- **Smart Live Detection** — Pausing the live feed auto-drops the LIVE badge and shows a "JUMP TO LIVE" button; resuming fetches a fresh live playlist at the true live edge
+- **Absolute Timestamp Sync** — `#EXT-X-PROGRAM-DATE-TIME` injected per segment so the UI clock and timeline playhead stay perfectly locked to the actual video content
+- **Automatic Retention Cleanup** — Old segments purged on a schedule via a dedicated worker thread
+- **Minute Preview Clips** — Auto-generated `.mp4` previews per minute for fast thumbnail scrubbing
+- **Docker Support** — Full `docker-compose.yml` with Nginx reverse proxy for production deployment
 
-## What the service does
+## Tech Stack
 
-- Starts one `ffmpeg` process per camera from `config.json`.
-- Stores segments in `/var/dvr/<camera>/YYYY-MM-DD/HH/*.m4s`.
-- Optionally mirrors a camera stream to RTMP while keeping DVR recording enabled.
-- Serves live and archive playlists over HTTP.
-- Generates minute preview clips.
-- Runs cleanup in a dedicated worker thread (`cleanup-worker.js`).
+| Layer | Technology |
+|---|---|
+| Backend | Node.js, Express, FFmpeg |
+| Frontend | React, TypeScript, Vite, HLS.js |
+| Styling | Tailwind CSS |
+| Streaming | HLS (fMP4 segments) |
+| Proxy | Nginx (Docker) |
 
-## Quick start
+## Project Structure
 
-1. Copy the config template:
+```
+dvr/
+├── backend/
+│   ├── server.js           # Core DVR engine (FFmpeg, HLS, API routes)
+│   ├── cleanup-worker.js   # Retention cleanup worker thread
+│   ├── config.json         # Camera configuration (gitignored)
+│   ├── config.example.json # Config template
+│   └── dvr_data/           # Generated HLS segments (gitignored)
+├── frontend/
+│   ├── src/
+│   │   └── components/
+│   │       └── DVRPlayback.tsx  # Main React DVR dashboard
+│   ├── vite.config.ts
+│   └── package.json
+├── infrastructure/
+│   └── nginx.conf          # Nginx reverse proxy config
+├── docker-compose.yml
+└── README.md
+```
+
+## Quick Start (Local Development)
+
+### 1. Backend Setup
 
 ```bash
+cd backend
 cp config.example.json config.json
+# Edit config.json to point cameras at your video source(s)
+npm install
+node server.js
 ```
 
-2. Update `source` URLs and camera settings in `config.json`.
+Backend runs on `http://localhost:8080`
 
-3. Install dependencies:
+### 2. Frontend Setup
 
 ```bash
-npm init -y
-npm install express
+cd frontend
+npm install
+npm run dev
 ```
 
-4. Run:
+Frontend runs on `http://localhost:5173`
+
+### 3. Add a Video Source
+
+In `backend/config.json`, point the `source` field to a local `.mp4` file or an RTSP stream:
+
+```json
+{
+  "cameras": [
+    {
+      "name": "cam-1",
+      "source": "./traffic_mock.mp4",
+      "retentionDays": 1
+    },
+    {
+      "name": "cam-2",
+      "source": "./backyard.mp4",
+      "retentionDays": 1
+    }
+  ]
+}
+```
+
+> **Note:** Video files are ignored by `.gitignore`. Place `.mp4` files directly in the `backend/` folder.
+
+## Docker Deployment
 
 ```bash
-sudo -u www-data -g www-data node server.js
+docker-compose up --build
 ```
 
-If you use the default `/var/dvr`, this avoids creating DVR files as `root:root`.
+- Nginx serves on port `8080`
+- Backend and frontend communicate internally via Docker network
+- DVR segments are shared between the backend and Nginx via a named volume
 
-## Main endpoints
+## API Endpoints
 
-- `GET /:camera/live.m3u8` (aliases: `index.m3u8`, `video.m3u8`, `*.fmp4.m3u8`)
-- `GET /:camera/dvr.m3u8?start=<ISO>&end=<ISO>`
-- `GET /:camera/index-:timestamp-:duration.fmp4.m3u8`
-- `GET /:camera/archive-:from-:duration.mp4`
-- `GET /:camera/recording_status.json`
-- `GET /:camera/:yyyy/:mm/:dd/:HH/:MM/:SS-preview.mp4`
-- `GET /dvr/...` direct DVR file access via nginx alias
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/:camera/live.m3u8` | Live HLS playlist (last N segments) |
+| `GET` | `/:camera/index-:timestamp-:duration.m3u8` | VOD history playlist from unix timestamp |
+| `GET` | `/:camera/recording_status.json` | Returns recorded time ranges for timeline |
+| `GET` | `/:camera/ai_events.json` | Mocked AI event detections |
+| `GET` | `/dvr/:camera/...` | Direct static file access for HLS segments |
 
-For full API and deployment details, see [INSTALL.md](./INSTALL.md).
+## Configuration Reference
 
-For a complete production setup of `Simple-DVR + SRS + nginx` with WebRTC/WHEP, see [WEBRTC-SRS-HOWTO.md](./WEBRTC-SRS-HOWTO.md).
+See [`config.example.json`](./backend/config.example.json) for all options.
 
-## Configuration
-
-See [config.example.json](./config.example.json).
-
-Key parameters:
-
-- `dvrRoot`: DVR storage root directory (defaults to `/var/dvr`)
-- `segmentDuration`: HLS segment duration (seconds)
-- `liveWindow`: live window size (segments)
-- `cleanupIntervalMinutes`: cleanup interval
-- `cameras[]`: camera list (`name`, `source`, `retentionDays`, `audioArgs`, `ffmpegInputArgs`, `ffmpegArgs`, `rtmpPushUrl`)
-- `source`: input URL or path for the camera stream; legacy `rtsp` is still accepted for backward compatibility
-- `audioArgs`: per-camera audio args passed to ffmpeg (e.g. `["-an"]` or `["-c:a","aac","-b:a","96k"]`)
-- `ffmpegInputArgs`: extra input args inserted before `-i` for this source
-- `ffmpegArgs`: extra output args inserted before final playlist path for this camera; for SRS/WebRTC RTMP push, keep the exact args from the install example
-- `rtmpPushUrl`: optional RTMP endpoint; when used for SRS/WebRTC, the matching `ffmpegArgs` are required, not optional tuning
-- `disableAudio`: legacy fallback; when `audioArgs` is not set: `true` -> `-an`, otherwise audio defaults to `-c:a copy`
-
-For a complete example of publishing a camera to local SRS and exposing it via WebRTC WHEP, see [WEBRTC-SRS-HOWTO.md](./WEBRTC-SRS-HOWTO.md).
-
-## Systemd notes
-
-If you run this as a service, verify:
-
-- `WorkingDirectory` points to the real project directory.
-- `ExecStart` points to the real `server.js` path.
-
+| Key | Description |
+|---|---|
+| `dvrRoot` | DVR storage directory (default: `./dvr_data`) |
+| `segmentDuration` | HLS segment length in seconds |
+| `liveWindow` | Number of segments in the live playlist |
+| `cleanupIntervalMinutes` | How often to run retention cleanup |
+| `cameras[].name` | Camera ID used in API routes |
+| `cameras[].source` | Input file path or stream URL |
+| `cameras[].retentionDays` | How many days of footage to keep |
