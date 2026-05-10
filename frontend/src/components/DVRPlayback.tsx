@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, FastForward } from 'lucide-react';
+import { Play, Pause, FastForward, Rewind } from 'lucide-react';
 
 interface RecordingRange {
   from: number;
@@ -16,16 +16,6 @@ interface AIEvent {
 const CameraPlayer = React.forwardRef(({ cameraId, videoSrc, isPlaying, onPlay, onPause, showNoFootageMessage, playbackTime, onPlayingDateChange }: any, ref: any) => {
   const videoRef = ref;
 
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current.play().catch(console.error);
-      } else {
-        videoRef.current.pause();
-      }
-    }
-  };
-
   useEffect(() => {
     if (!videoRef.current) return;
     let hls: Hls;
@@ -40,7 +30,7 @@ const CameraPlayer = React.forwardRef(({ cameraId, videoSrc, isPlaying, onPlay, 
 
       // Constantly report the TRUE real-world time of the video back to the timeline
       const syncInterval = setInterval(() => {
-        if (hls && hls.playingDate && onPlayingDateChange) {
+        if (hls && hls.playingDate && onPlayingDateChange && videoRef.current && !videoRef.current.paused) {
           onPlayingDateChange(hls.playingDate);
         }
       }, 500);
@@ -68,7 +58,7 @@ const CameraPlayer = React.forwardRef(({ cameraId, videoSrc, isPlaying, onPlay, 
         className="absolute inset-0 w-full h-full object-contain bg-black"
         playsInline
       />
-      <div className="absolute inset-0 z-30 cursor-pointer" onClick={togglePlay}></div>
+      <div className="absolute inset-0 z-30 pointer-events-none"></div>
       <div className="absolute inset-0 bg-gradient-to-t from-surface-container-lowest/90 via-transparent to-surface-container-lowest/30 pointer-events-none"></div>
 
       <div className="absolute top-4 left-4 flex flex-col space-y-2 pointer-events-none z-40">
@@ -86,17 +76,6 @@ const CameraPlayer = React.forwardRef(({ cameraId, videoSrc, isPlaying, onPlay, 
           <span className="font-data-tabular text-data-tabular text-on-surface-variant text-[11px] uppercase">1080p / 60FPS</span>
         </div>
       </div>
-
-      {!isPlaying && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
-          <button 
-            onClick={togglePlay}
-            className="w-20 h-20 rounded-full bg-surface-container-low/60 backdrop-blur border border-outline text-on-surface flex items-center justify-center hover:bg-surface-container-high hover:text-primary hover:border-primary transition-all duration-200 pointer-events-auto opacity-70 hover:opacity-100 group-hover:opacity-100 shadow-xl"
-          >
-            <Play className="w-10 h-10 ml-1 fill-current" />
-          </button>
-        </div>
-      )}
 
       {showNoFootageMessage && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
@@ -127,24 +106,46 @@ export default function DVRPlayback() {
 
   const [recordingRanges, setRecordingRanges] = useState<RecordingRange[]>([]);
   const [aiEvents, setAiEvents] = useState<AIEvent[]>([]);
+  
+  const ignoreTimeUpdateRef = useRef<boolean>(false);
+  const skipPauseDetectionRef = useRef<boolean>(false);
+  const trueLiveDateRef = useRef<Date | null>(null);
 
   const isPlaying = isPlaying1 || isPlaying2;
+  const [realTime, setRealTime] = useState<number>(Date.now());
+
+  // Disable fast forward if the clock hasn't fallen at least 10s behind real time
+  const canSkipForward = (realTime - playbackTime.getTime()) >= 9000; // 9s for safety margin
 
   // Playhead and time sync (Only for Live. VOD is synced via CameraPlayer's true playingDate)
   useEffect(() => {
     const interval = setInterval(() => {
-      if (isLive) {
-        const now = new Date();
-        const secondsSinceMidnight = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-        setPlayheadPct((secondsSinceMidnight / 86400) * 100);
-        setPlaybackTime(now);
+      setRealTime(Date.now());
+      if (isLive && isPlaying) {
+        setPlaybackTime(prev => {
+          // If we've fallen more than 2 seconds behind real time, we're acting like VOD.
+          // Don't jump to Date.now() (which would skip the clock ahead of the video),
+          // instead just tick +1s to maintain seamless playback at the frozen time.
+          if (Date.now() - prev.getTime() > 2000) {
+            const next = new Date(prev.getTime() + 1000);
+            const secondsSinceMidnight = next.getHours() * 3600 + next.getMinutes() * 60 + next.getSeconds();
+            setPlayheadPct((secondsSinceMidnight / 86400) * 100);
+            return next;
+          }
+          
+          const now = new Date();
+          const secondsSinceMidnight = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+          setPlayheadPct((secondsSinceMidnight / 86400) * 100);
+          return now;
+        });
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isLive]);
+  }, [isLive, isPlaying]);
 
   const handleTrueTimeUpdate = (trueDate: Date) => {
-    if (!isLive) {
+    trueLiveDateRef.current = trueDate;
+    if (!isLive && !ignoreTimeUpdateRef.current) {
       setPlaybackTime(trueDate);
       const secondsSinceMidnight = trueDate.getHours() * 3600 + trueDate.getMinutes() * 60 + trueDate.getSeconds();
       setPlayheadPct((secondsSinceMidnight / 86400) * 100);
@@ -188,21 +189,82 @@ export default function DVRPlayback() {
 
   const jumpToLive = () => {
     if (isLive) return;
+    // Prevent the pause-detection from immediately undoing this
+    skipPauseDetectionRef.current = true;
+    setTimeout(() => skipPauseDetectionRef.current = false, 2000);
+    
     setIsLive(true);
-    setVideoSrc1('/api/iit-assignment-cam/live.m3u8');
-    setVideoSrc2('/api/cam-2/live.m3u8');
+    // Cache-buster forces React to see a new URL, destroying the old HLS
+    // instance and creating a fresh one at the actual live edge
+    const t = Date.now();
+    setVideoSrc1(`/api/iit-assignment-cam/live.m3u8?t=${t}`);
+    setVideoSrc2(`/api/cam-2/live.m3u8?t=${t}`);
     setPlaybackTime(new Date());
   };
 
   const toggleMasterPlay = () => {
     const isAnyPaused = videoRef1.current?.paused || videoRef2.current?.paused;
     if (isAnyPaused) {
+      // If we are unpausing a live stream and we've fallen more than 10s behind real time,
+      // the live HLS buffer is likely dead. We MUST seamlessly transition to History mode
+      // starting exactly from the frozen clock time so no footage is lost.
+      const gap = Date.now() - playbackTime.getTime();
+      if (isLive && gap > 10000) {
+        // Use the exact frame time to account for stream latency, preventing skips!
+        const actualPauseTime = trueLiveDateRef.current || playbackTime;
+        const targetUnix = Math.floor(actualPauseTime.getTime() / 1000);
+        
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const endOfDayUnix = Math.floor(startOfDay.getTime() / 1000) + 86400;
+        const duration = endOfDayUnix - targetUnix;
+        
+        setIsLive(false);
+        setPlaybackTime(actualPauseTime);
+        setVideoSrc1(`/api/iit-assignment-cam/index-${targetUnix}-${duration}.m3u8`);
+        setVideoSrc2(`/api/cam-2/index-${targetUnix}-${duration}.m3u8`);
+        return;
+      }
+
       videoRef1.current?.play().catch(console.error);
       videoRef2.current?.play().catch(console.error);
     } else {
       videoRef1.current?.pause();
       videoRef2.current?.pause();
     }
+  };
+
+  const skipBySeconds = (seconds: number) => {
+    // Freeze the UI clock so the HLS player's segment-boundary timestamps
+    // don't overwrite our clean offset while the new playlist loads
+    ignoreTimeUpdateRef.current = true;
+    setTimeout(() => ignoreTimeUpdateRef.current = false, 2000);
+
+    const baseTime = isLive ? new Date() : playbackTime;
+    const targetUnix = Math.floor(baseTime.getTime() / 1000) + seconds;
+    const targetDate = new Date(targetUnix * 1000);
+
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDayUnix = Math.floor(startOfDay.getTime() / 1000) + 86400;
+    const duration = endOfDayUnix - targetUnix;
+
+    if (duration <= 0) return; // can't skip past end of day
+
+    // Cap the target so we never request a timestamp too close to "now"
+    // (the backend needs at least ~15s of recorded segments to build a playlist)
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const cappedTargetUnix = Math.min(targetUnix, nowUnix - 15);
+    if (cappedTargetUnix <= 0) return;
+    const cappedDate = new Date(cappedTargetUnix * 1000);
+    const cappedDuration = endOfDayUnix - cappedTargetUnix;
+
+    setIsLive(false);
+    setPlaybackTime(cappedDate);
+    const secondsSinceMidnight = cappedDate.getHours() * 3600 + cappedDate.getMinutes() * 60 + cappedDate.getSeconds();
+    setPlayheadPct((secondsSinceMidnight / 86400) * 100);
+    setVideoSrc1(`/api/iit-assignment-cam/index-${cappedTargetUnix}-${cappedDuration}.m3u8`);
+    setVideoSrc2(`/api/cam-2/index-${cappedTargetUnix}-${cappedDuration}.m3u8`);
   };
 
   useEffect(() => {
@@ -296,13 +358,30 @@ export default function DVRPlayback() {
           <div className="h-timeline-height shrink-0 bg-surface-container border-t border-outline-variant flex flex-col relative">
             <div className="flex justify-between items-center px-4 py-1.5 border-b border-surface-container-highest bg-surface-container-low shrink-0 z-20 shadow-sm">
               <div className="flex items-center space-x-6">
-                <button 
-                  onClick={toggleMasterPlay}
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors shadow-sm"
-                  title="Master Play/Pause"
-                >
-                  {(!isPlaying1 || !isPlaying2) ? <Play className="w-4 h-4 ml-0.5 fill-current" /> : <Pause className="w-4 h-4 fill-current" />}
-                </button>
+                <div className="flex items-center space-x-1">
+                  <button 
+                    onClick={() => skipBySeconds(-10)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                    title="Skip Back 10s"
+                  >
+                    <Rewind className="w-4 h-4 fill-current" />
+                  </button>
+                  <button 
+                    onClick={toggleMasterPlay}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors shadow-sm"
+                    title="Master Play/Pause"
+                  >
+                    {(!isPlaying1 || !isPlaying2) ? <Play className="w-4 h-4 ml-0.5 fill-current" /> : <Pause className="w-4 h-4 fill-current" />}
+                  </button>
+                  <button 
+                    onClick={() => skipBySeconds(10)}
+                    disabled={!canSkipForward}
+                    className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${!canSkipForward ? 'opacity-30 cursor-not-allowed text-on-surface-variant' : 'text-on-surface-variant hover:text-primary hover:bg-surface-container-high'}`}
+                    title={!canSkipForward ? 'Cannot skip forward — no future footage' : 'Skip Forward 10s'}
+                  >
+                    <FastForward className="w-4 h-4 fill-current" />
+                  </button>
+                </div>
                 <span className="font-label-caps text-label-caps text-on-surface">SYNCED TIMELINE_</span>
                 <div className="flex items-center space-x-4 font-label-caps text-[10px] text-on-surface-variant">
                   <div className="flex items-center"><span className="w-2.5 h-1.5 bg-primary/80 mr-1.5 rounded-sm border border-primary/50"></span> REC_BLOCK</div>

@@ -165,10 +165,12 @@ function parseTimestamp(filename) {
 // ----------------------------------------
 function selectSegments(camera, startDate, endDate) {
     const segments = getSegments(camera);
+    const SEGMENT_DURATION_MS = 5000; // 5 seconds
 
     return segments.filter(f => {
         const ts = parseTimestamp(path.basename(f));
-        return ts >= startDate && ts <= endDate;
+        // Include the segment if it ends after the startDate and starts before the endDate
+        return (ts.getTime() + SEGMENT_DURATION_MS) > startDate.getTime() && ts <= endDate;
     });
 }
 
@@ -284,7 +286,7 @@ function getSegments(camera) {
 // ----------------------------------------
 // Playlist builder
 // ----------------------------------------
-function buildPlaylist(camera, segments, mode, mediaSequence = 0) {
+function buildPlaylist(camera, segments, mode, mediaSequence = 0, startOffset = 0) {
 
     let header = `#EXTM3U
 #EXT-X-VERSION:7
@@ -296,6 +298,9 @@ function buildPlaylist(camera, segments, mode, mediaSequence = 0) {
         header += `#EXT-X-MEDIA-SEQUENCE:${mediaSequence}\n`;
     } else {
         header += `#EXT-X-PLAYLIST-TYPE:VOD\n`;
+        if (startOffset > 0) {
+            header += `#EXT-X-START:TIME-OFFSET=${startOffset.toFixed(3)},PRECISE=YES\n`;
+        }
     }
 
     let body = '';
@@ -488,8 +493,17 @@ app.get([
 
     const selected = selectSegments(camera, start, end);
 
+    let startOffset = 0;
+    if (selected.length > 0) {
+        const firstTs = parseTimestamp(path.basename(selected[0]));
+        if (firstTs) {
+            startOffset = (start.getTime() - firstTs.getTime()) / 1000;
+            if (startOffset < 0) startOffset = 0;
+        }
+    }
+
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    res.send(buildPlaylist(camera, selected, 'vod'));
+    res.send(buildPlaylist(camera, selected, 'vod', 0, startOffset));
 });
 
 // ----------------------------------------
