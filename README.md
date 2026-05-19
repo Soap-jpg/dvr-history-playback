@@ -125,4 +125,4 @@ The following changes were made to the provided Node.js backend skeleton:
 | API 1 | `POST` | `http://smart.okdriver.in:5000/api/playback/request-list/{imei}` | Wake dashcam, trigger SD card scan |
 | API 2 | `GET` | `https://smart.okdriver.in/api/playback/videos/{imei}` | Fetch list of recorded `.ts` filenames |
 | API 3 | `POST` | `http://smart.okdriver.in:5000/api/playback/start/{imei}` | Command device to upload a specific clip |
-| API 4 | `GET` | `http://localhost:4000/api/playback/status/{imei}/{filename}` | Our own polling endpoint — tracks upload readiness and returns Virtual HLS playlist URL |
+| API 4 | `GET` | `http://localhost:4000/api/playback/status/{imei}/{filename}` | Our own polling endpoint — tracks upload readiness and returns the direct video playback URL |
