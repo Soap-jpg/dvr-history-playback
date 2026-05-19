@@ -1,0 +1,6 @@
+okDriver Playback API running on http://localhost:4000
+Endpoints:
+   POST /api/playback/request-list/:imei
+   GET  /api/playback/videos/:imei
+   POST /api/playback/start/:imei
+   GET  /api/playback/status/:imei/:filename

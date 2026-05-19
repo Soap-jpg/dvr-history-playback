@@ -1,16 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
-@config "../tailwind.config.ts";
 
-body {
-    background-color: theme('colors.background');
-    color: theme('colors.on-background');
+/* ── CSS custom properties (design tokens) ──────────────────────────────── */
+:root {
+  --color-bg:          #0c1117;
+  --color-surface:     #131920;
+  --color-surface-mid: #1a2330;
+  --color-surface-hi:  #222e3c;
+  --color-border:      rgba(255,255,255,0.07);
+  --color-border-hi:   rgba(255,255,255,0.14);
+
+  --color-fwd:         #3b82f6;   /* blue-500  — Forward camera */
+  --color-fwd-dim:     rgba(59,130,246,0.25);
+  --color-in:          #22c55e;   /* green-500 — Inward camera */
+  --color-in-dim:      rgba(34,197,94,0.25);
+
+  --color-scrubber:    #ef4444;   /* red-500 */
+  --color-accent:      #6366f1;   /* indigo-500 */
+
+  --font-ui:   'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
 }
 
-/* Hide scrollbar for timeline but allow scrolling */
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
+/* ── Base reset ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: #e2e8f0;
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
 }
-.no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-hi); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+/* ── Scanline overlay ───────────────────────────────────────────────────── */
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.06) 2px,
+    rgba(0,0,0,0.06) 4px
+  );
+  pointer-events: none;
+  z-index: 5;
 }
+
+/* ── Utility animations ──────────────────────────────────────────────────── */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+  50%       { opacity: 0.6; box-shadow: 0 0 10px currentColor; }
+}
+.animate-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.spin { animation: spin 0.9s linear infinite; }
+
+/* ── Cross-fade transition for double-buffer swap ────────────────────────── */
+.video-layer { transition: opacity 0.3s ease; }
+
+/* ── Timeline clip hover ─────────────────────────────────────────────────── */
+.clip-block { transition: filter 0.12s ease, box-shadow 0.12s ease; }
+.clip-block:hover { filter: brightness(1.35); }

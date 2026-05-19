@@ -1,6 +1,5 @@
-backend/config.json
-.github
-*.mp4
-backend/dvr_data/
 node_modules/
+*.docx
+docx_extracted/
+.env
 .DS_Store
